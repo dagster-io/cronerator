@@ -1,0 +1,22 @@
+[package]
+name = "cronerator"
+version = "0.1.0"
+authors.workspace = true
+edition.workspace = true
+repository.workspace = true
+license.workspace = true
+keywords.workspace = true
+categories.workspace = true
+
+[lib]
+name = "cronerator"
+crate-type = ["cdylib"]
+
+[dependencies]
+pyo3 = { version = "0.26.0", features = ["chrono", "chrono-tz"] }
+cron = { path = "../cron", features = ["vixie"]}
+chrono = "0.4.42"
+chrono-tz = "0.10.4"
+
+[build-dependencies]
+pyo3-build-config = "0.26"

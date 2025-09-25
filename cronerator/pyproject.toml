@@ -1,0 +1,56 @@
+[project]
+name = "cronerator"
+version = "0.1.0"
+requires-python = ">=3.9"
+license = "Apache-2.0 OR MIT"
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: Apache Software License",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: MacOS",
+    "Operating System :: Microsoft :: Windows",
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Programming Language :: Python :: Implementation :: CPython",
+    "Programming Language :: Python",
+    "Programming Language :: Rust",
+    "Typing :: Typed",
+]
+
+[project.urls]
+source = "https://github.com/dagster-io/cronerator"
+
+[build-system]
+requires = ["maturin>=1.4.0,<2.0"]
+build-backend = "maturin"
+
+[tool.uv]
+# Rebuild the package when any rust files change
+cache-keys = [{file = "pyproject.toml"}, {file = "Cargo.toml"}, {file = "**/*.rs"}, {file = "../cron/**/*.rs"}]
+
+[tool.ruff]
+line-length = 88
+target-version = "py39"
+select = ["ALL"]
+ignore = [
+  "ANN201",
+  "ANN202",
+  "D100",
+  "D103",
+  "PT006",
+  "S101",
+  "PLR2004",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.4.2",
+    "ruff>=0.13.1",
+]
