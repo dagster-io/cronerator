@@ -1,4 +1,4 @@
-// #![cfg(all(test, not(feature = "vixie")))]
+#![cfg(all(test, not(feature = "vixie")))]
 mod tests {
     use chrono::*;
     use chrono_tz::Tz;

@@ -3,7 +3,6 @@ mod tests {
     use chrono::*;
     use chrono_tz::Tz;
     use cron::{Schedule, TimeUnitSpec};
-    use core::time;
     use std::ops::Bound::{Excluded, Included};
     use std::str::FromStr;
 
@@ -552,6 +551,10 @@ mod tests {
                 "Europe/Berlin",
                 "*/15 * * * *",
                 vec![
+                    (2023, 3, 26, 0, 0, 0),
+                    (2023, 3, 26, 0, 15, 0),
+                    (2023, 3, 26, 0, 30, 0),
+                    (2023, 3, 26, 0, 45, 0),
                     (2023, 3, 26, 1, 0, 0),
                     (2023, 3, 26, 1, 15, 0),
                     (2023, 3, 26, 1, 30, 0),
@@ -568,6 +571,10 @@ mod tests {
                 "Europe/Berlin",
                 "*/15 * * * *",
                 vec![
+                    (2023, 10, 29, 0, 0, 0),
+                    (2023, 10, 29, 0, 15, 0),
+                    (2023, 10, 29, 0, 30, 0),
+                    (2023, 10, 29, 0, 45, 0),
                     (2023, 10, 29, 1, 0, 0),
                     (2023, 10, 29, 1, 15, 0),
                     (2023, 10, 29, 1, 30, 0),
@@ -601,39 +608,19 @@ mod tests {
             let mut events = schedule.after(&starting_date);
             
             for (event_index, expected_datetime) in expected_datetimes.iter().enumerate() {
-                let expected_date = timezone
-                    .with_ymd_and_hms(expected_datetime.0, expected_datetime.1, expected_datetime.2,
-                                    expected_datetime.3, expected_datetime.4, expected_datetime.5)
+                let expected_date = NaiveDate::from_ymd_opt(expected_datetime.0, expected_datetime.1, expected_datetime.2)
+                    .unwrap()
+                    .and_hms_opt(expected_datetime.3, expected_datetime.4, expected_datetime.5)
                     .unwrap();
                 
                 let actual_date = events.next().unwrap_or_else(|| {
                     panic!("Test case {} ({}): No more events available at index {}", 
                         case_index, cron_expression, event_index)
-                });
+                }).naive_local();
                 
                 assert_eq!(
-                    expected_date.year(), actual_date.year(),
-                    "Test case {} ({}): Year mismatch at index {}", case_index, cron_expression, event_index
-                );
-                assert_eq!(
-                    expected_date.month(), actual_date.month(),
-                    "Test case {} ({}): Month mismatch at index {}", case_index, cron_expression, event_index
-                );
-                assert_eq!(
-                    expected_date.day(), actual_date.day(),
-                    "Test case {} ({}): Day mismatch at index {}", case_index, cron_expression, event_index
-                );
-                assert_eq!(
-                    expected_date.hour(), actual_date.hour(),
-                    "Test case {} ({}): Hour mismatch at index {}", case_index, cron_expression, event_index
-                );
-                assert_eq!(
-                    expected_date.minute(), actual_date.minute(),
-                    "Test case {} ({}): Minute mismatch at index {}", case_index, cron_expression, event_index
-                );
-                assert_eq!(
-                    expected_date.second(), actual_date.second(),
-                    "Test case {} ({}): Second mismatch at index {}", case_index, cron_expression, event_index
+                    expected_date, actual_date,
+                    "Test case {} ({}): Date mismatch at index {}", case_index, cron_expression, event_index
                 );
             }
         }

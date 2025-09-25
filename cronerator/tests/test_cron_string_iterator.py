@@ -530,7 +530,7 @@ def test_dst_transition_advances(execution_timezone, cron_string, times):
                 )
                 diff_str = next_time.timestamp() - times[j].timestamp()
                 assert next_time.timestamp() == times[j].timestamp(), (
-                    f"Expected ({orig_timestamp_str}) to advance from {prev_time} to {times[j]}, got {next_time} (Difference: {diff_str})"
+                    f"{j} {i} Expected ({orig_timestamp_str}) to advance from {prev_time} to {times[j]}, got {next_time} (Difference: {diff_str})"
                 )
 
                 prev_time = next_time

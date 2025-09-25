@@ -790,7 +790,7 @@ fn day_of_week(year: u32, month: u32, day: u32) -> Result<u32, ()> {
 #[cfg(feature = "vixie")]
 fn day_of_week(year: u32, month: u32, day: u32) -> Result<u32, ()> {
     match chrono::NaiveDate::from_ymd_opt(year as i32, month, day) {
-        Some(d) => Ok(d.weekday().number_from_sunday()),
+        Some(d) => Ok(d.weekday().num_days_from_sunday()),
         None => Err(()),
     }
 }
