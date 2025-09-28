@@ -1,5 +1,5 @@
 use chrono::offset::TimeZone;
-use chrono::{DateTime, Datelike, Duration, NaiveDateTime, Timelike};
+use chrono::{DateTime, Datelike, NaiveDateTime, Timelike};
 
 use crate::ordinal::Ordinal;
 use crate::time_unit::{DaysOfMonth, Hours, Minutes, Months, Seconds, TimeUnitField};
@@ -17,20 +17,6 @@ pub struct NextAfterQuery {
 
 impl NextAfterQuery {
     pub fn from<Z>(after: &DateTime<Z>) -> NextAfterQuery
-    where
-        Z: TimeZone,
-    {
-        NextAfterQuery {
-            initial_datetime: after.naive_local() + Duration::seconds(1),
-            first_month: true,
-            first_day_of_month: true,
-            first_hour: true,
-            first_minute: true,
-            first_second: true,
-        }
-    }
-
-    pub fn from_folded<Z>(after: &DateTime<Z>) -> NextAfterQuery
     where
         Z: TimeZone,
     {
@@ -126,25 +112,6 @@ pub struct PrevFromQuery {
 impl PrevFromQuery
 {
     pub fn from<Z>(before: &DateTime<Z>) -> PrevFromQuery
-    where
-        Z: TimeZone,
-    {
-        let initial_datetime = if before.timestamp_subsec_nanos() > 0 {
-            before.naive_local()
-        } else {
-            before.naive_local() - Duration::seconds(1)
-        };
-        PrevFromQuery {
-            initial_datetime,
-            first_month: true,
-            first_day_of_month: true,
-            first_hour: true,
-            first_minute: true,
-            first_second: true,
-        }
-    }
-
-    pub fn from_folded<Z>(before: &DateTime<Z>) -> PrevFromQuery
     where
         Z: TimeZone,
     {

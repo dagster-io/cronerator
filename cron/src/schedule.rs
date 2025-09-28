@@ -40,7 +40,7 @@ impl Schedule {
         let dow_and_dom_specific =
             !self.fields.days_of_week.is_all() && !self.fields.days_of_month.is_all();
 
-        let mut query = NextAfterQuery::from_folded(after);
+        let mut query = NextAfterQuery::from(after);
         for year in self
             .fields
             .years
@@ -219,7 +219,7 @@ impl Schedule {
         let dow_and_dom_specific =
             !self.fields.days_of_week.is_all() && !self.fields.days_of_month.is_all();
 
-        let mut query = PrevFromQuery::from_folded(before);
+        let mut query = PrevFromQuery::from(before);
         for year in self
             .fields
             .years
