@@ -1,16 +1,13 @@
 use chrono::offset::TimeZone;
-use chrono::{DateTime, Datelike, Duration, Timelike};
+use chrono::{DateTime, Datelike, Duration, NaiveDateTime, Timelike};
 
 use crate::ordinal::Ordinal;
 use crate::time_unit::{DaysOfMonth, Hours, Minutes, Months, Seconds, TimeUnitField};
 
 // TODO: Possibility of one query struct?
 
-pub struct NextAfterQuery<Z>
-where
-    Z: TimeZone,
-{
-    initial_datetime: DateTime<Z>,
+pub struct NextAfterQuery {
+    initial_datetime: NaiveDateTime,
     first_month: bool,
     first_day_of_month: bool,
     first_hour: bool,
@@ -18,13 +15,27 @@ where
     first_second: bool,
 }
 
-impl<Z> NextAfterQuery<Z>
-where
-    Z: TimeZone,
-{
-    pub fn from(after: &DateTime<Z>) -> NextAfterQuery<Z> {
+impl NextAfterQuery {
+    pub fn from<Z>(after: &DateTime<Z>) -> NextAfterQuery
+    where
+        Z: TimeZone,
+    {
         NextAfterQuery {
-            initial_datetime: after.clone() + Duration::seconds(1),
+            initial_datetime: after.naive_local() + Duration::seconds(1),
+            first_month: true,
+            first_day_of_month: true,
+            first_hour: true,
+            first_minute: true,
+            first_second: true,
+        }
+    }
+
+    pub fn from_folded<Z>(after: &DateTime<Z>) -> NextAfterQuery
+    where
+        Z: TimeZone,
+    {
+        NextAfterQuery {
+            initial_datetime: after.naive_local(),
             first_month: true,
             first_day_of_month: true,
             first_hour: true,
@@ -103,11 +114,8 @@ where
     }
 } // End of impl
 
-pub struct PrevFromQuery<Z>
-where
-    Z: TimeZone,
-{
-    initial_datetime: DateTime<Z>,
+pub struct PrevFromQuery {
+    initial_datetime: NaiveDateTime,
     first_month: bool,
     first_day_of_month: bool,
     first_hour: bool,
@@ -115,16 +123,32 @@ where
     first_second: bool,
 }
 
-impl<Z> PrevFromQuery<Z>
-where
-    Z: TimeZone,
+impl PrevFromQuery
 {
-    pub fn from(before: &DateTime<Z>) -> PrevFromQuery<Z> {
+    pub fn from<Z>(before: &DateTime<Z>) -> PrevFromQuery
+    where
+        Z: TimeZone,
+    {
         let initial_datetime = if before.timestamp_subsec_nanos() > 0 {
-            before.clone()
+            before.naive_local()
         } else {
-            before.clone() - Duration::seconds(1)
+            before.naive_local() - Duration::seconds(1)
         };
+        PrevFromQuery {
+            initial_datetime,
+            first_month: true,
+            first_day_of_month: true,
+            first_hour: true,
+            first_minute: true,
+            first_second: true,
+        }
+    }
+
+    pub fn from_folded<Z>(before: &DateTime<Z>) -> PrevFromQuery
+    where
+        Z: TimeZone,
+    {
+        let initial_datetime = before.naive_local();
         PrevFromQuery {
             initial_datetime,
             first_month: true,

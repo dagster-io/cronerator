@@ -16,19 +16,16 @@ def create_datetime(year: int, month: int, day: int, *args, **kwargs):
     return datetime.datetime(year, month, day, *args, **kwargs, tzinfo=tz)
 
 def cron_string_iterator(start_timestamp: float, cron_string: str, timezone: str):
-    cron = Cronerator(
+    return Cronerator(
         cron_string,
-        datetime.datetime.fromtimestamp(start_timestamp, tz=get_timezone(timezone)),
+        datetime.datetime.fromtimestamp(start_timestamp-1, tz=get_timezone(timezone)),
     )
-    cron.get_prev()  # Move back one step to ensure we start *after* the given timestamp
-    return cron
 
 def reverse_cron_string_iterator(start_timestamp: float, cron_string: str, timezone: str):
     cron = Cronerator(
         cron_string,
-        datetime.datetime.fromtimestamp(start_timestamp, tz=get_timezone(timezone)),
+        datetime.datetime.fromtimestamp(start_timestamp+1, tz=get_timezone(timezone)),
     )
-    cron.get_next()  # Move forward one step to ensure we start *before* the given timestamp
 
     def _impl():
         while prev := cron.get_prev():
@@ -485,8 +482,6 @@ DST_PARAMS = [
 
 @pytest.mark.parametrize("execution_timezone,cron_string,times", DST_PARAMS)
 def test_dst_transition_advances(execution_timezone, cron_string, times):
-    # Starting 1 second after each time produces the next tick
-
     for i in range(len(times) - 1):
         orig_start_timestamp = times[i].astimezone(datetime.timezone.utc).timestamp()
         # first start from the timestamp that's exactly on the interval -
@@ -495,16 +490,16 @@ def test_dst_transition_advances(execution_timezone, cron_string, times):
         fresh_cron_iter = cron_string_iterator(
             orig_start_timestamp, cron_string, execution_timezone,
         )
+        orig_timestamp_str = datetime.datetime.fromtimestamp(
+            orig_start_timestamp, tz=get_timezone(execution_timezone),
+        )
         prev_time = None
         for j in range(i, len(times)):
             next_time = next(fresh_cron_iter)
 
-            orig_timestamp_str = datetime.datetime.fromtimestamp(
-                orig_start_timestamp, tz=get_timezone(execution_timezone),
-            )
             diff_str = next_time.timestamp() - times[j].timestamp()
             assert next_time.timestamp() == times[j].timestamp(), (
-                f"Expected ({orig_timestamp_str}) to advance from {prev_time} to {times[j]}, got {next_time} (Difference: {diff_str})"
+                f"Expected to advance from {prev_time or orig_timestamp_str} to {times[j]}, got {next_time} (Difference: {diff_str})"
             )
             prev_time = next_time
 
@@ -514,23 +509,23 @@ def test_dst_transition_advances(execution_timezone, cron_string, times):
 
         # Spot-check 100 points on the interval between the two timestamps, making sure the last
         # one is very close to the end
-        timestamp_interval = ((next_timestamp - 75) - orig_start_timestamp) / 100
+        timestamp_interval = ((next_timestamp - 75) - start_timestamp) / 100
 
         while start_timestamp < next_timestamp:
             fresh_cron_iter = cron_string_iterator(
                 start_timestamp, cron_string, execution_timezone,
+            )
+            orig_timestamp_str = datetime.datetime.fromtimestamp(
+                start_timestamp, tz=get_timezone(execution_timezone),
             )
 
             prev_time = None
             for j in range(i + 1, len(times)):
                 next_time = next(fresh_cron_iter)
 
-                orig_timestamp_str = datetime.datetime.fromtimestamp(
-                    orig_start_timestamp, tz=get_timezone(execution_timezone),
-                )
                 diff_str = next_time.timestamp() - times[j].timestamp()
                 assert next_time.timestamp() == times[j].timestamp(), (
-                    f"{j} {i} Expected ({orig_timestamp_str}) to advance from {prev_time} to {times[j]}, got {next_time} (Difference: {diff_str})"
+                    f"Expected ({orig_timestamp_str}) to advance from {prev_time} to {times[j]}, got {next_time} (Difference: {diff_str})"
                 )
 
                 prev_time = next_time

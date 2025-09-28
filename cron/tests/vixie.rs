@@ -201,6 +201,536 @@ mod tests {
     }
 
     #[test]
+    fn test_cron_iterator_leap_day() {
+        let timezone = "Europe/Berlin".parse::<Tz>().expect("Invalid timezone");
+        let schedule = Schedule::from_str("2 4 29 2 *").expect("Failed to parse cron expression");
+
+        let starting_date = timezone
+            .with_ymd_and_hms(2023, 3, 27, 1, 0, 1)
+            .unwrap();
+
+        let mut events = schedule.after(&starting_date);
+        events.next_back();
+        
+        for event in (0..10).map(|_| events.next().unwrap()) {
+            println!("Leap year event: {}", event);
+            assert_eq!(event.month(), 2);
+            assert_eq!(event.day(), 29);
+            assert_eq!(event.hour(), 4);
+            assert_eq!(event.minute(), 2);
+        }
+    }
+        
+
+    #[test]
+    fn test_starting_in_dst() {
+        let cron_expression = "0 2 * * *";
+        let expected_datetimes = vec![
+            (2023, 10, 29, 2, 0, 0), // fold=1 ignored
+            (2023, 10, 30, 2, 0, 0),
+            (2023, 10, 31, 2, 0, 0),
+            (2023, 11, 1, 2, 0, 0),
+        ];
+        let timezone = "Europe/Berlin".parse::<Tz>().expect("Invalid timezone");
+        let schedule = Schedule::from_str(cron_expression).expect("Failed to parse cron expression");
+        
+        // Start from the day before the first expected datetime to ensure we get all expected results
+        let starting_date = match timezone
+            .with_ymd_and_hms(2023, 10, 29, 2, 13, 48)
+        {
+            LocalResult::Ambiguous(fold_0, _) => fold_0,
+            _ => panic!("Starting date is not ambiguous as expected"),
+        };
+
+        let mut events = schedule.after(&starting_date);
+    
+        for (event_index, expected_datetime) in expected_datetimes.iter().enumerate() {
+            let expected_date = NaiveDate::from_ymd_opt(expected_datetime.0, expected_datetime.1, expected_datetime.2)
+                .unwrap()
+                .and_hms_opt(expected_datetime.3, expected_datetime.4, expected_datetime.5)
+                .unwrap();
+            
+            let actual_date = events.next().unwrap_or_else(|| {
+                panic!("{}: No more events available at index {}", cron_expression, event_index)
+            }).naive_local();
+            
+            assert_eq!(
+                expected_date, actual_date,
+                "{}: Date mismatch at index {}", cron_expression, event_index
+            );
+        }
+    }
+
+
+    #[test]
+    fn test_lord_howe() {
+        let cron_expression = "0 2 * * *";
+        let expected_datetimes = vec![
+            (2023, 10, 1, 2, 30, 0),
+            (2023, 10, 2, 2, 0, 0),
+            (2023, 10, 3, 2, 0, 0),
+        ];
+        let timezone = "Australia/Lord_Howe".parse::<Tz>().expect("Invalid timezone");
+        let schedule = Schedule::from_str(cron_expression).expect("Failed to parse cron expression");
+        
+        // Start from the day before the first expected datetime to ensure we get all expected results
+        let starting_date = match timezone
+            .with_ymd_and_hms(2023, 10, 1, 1, 59, 59)
+        {
+            LocalResult::Single(dt) => dt,
+            LocalResult::Ambiguous(fold_0, _) => fold_0,
+            LocalResult::None => panic!("Starting date does not exist as expected"),
+        };
+        print!("Starting date: {} {}", starting_date, starting_date.naive_local());
+
+        let mut events = schedule.after(&starting_date);
+    
+        for (event_index, expected_datetime) in expected_datetimes.iter().enumerate() {
+            let expected_date = NaiveDate::from_ymd_opt(expected_datetime.0, expected_datetime.1, expected_datetime.2)
+                .unwrap()
+                .and_hms_opt(expected_datetime.3, expected_datetime.4, expected_datetime.5)
+                .unwrap();
+            
+            let actual_date = events.next().unwrap_or_else(|| {
+                panic!("{}: No more events available at index {}", cron_expression, event_index)
+            }).naive_local();
+            
+            assert_eq!(
+                expected_date, actual_date,
+                "{}: Date mismatch at index {}", cron_expression, event_index
+            );
+        }
+    }
+
+    #[test]
+    fn test_cron_schedule_reverse() {
+        // Test cases: (timezone, cron_expression, expected_datetimes)
+        // Each expected datetime is (year, month, day, hour, minute, second)
+        let test_cases = [
+            // Daily / fall back
+            (
+                "Europe/Berlin",
+                "45 1 * * *",
+                vec![
+                    (2023, 10, 27, 1, 45, 0),
+                    (2023, 10, 28, 1, 45, 0),
+                    (2023, 10, 29, 1, 45, 0),
+                    (2023, 10, 30, 1, 45, 0),
+                    (2023, 10, 31, 1, 45, 0),
+                    (2023, 11, 1, 1, 45, 0),
+                ],
+            ),
+            (
+                "Australia/Lord_Howe",
+                "0 2 * * *",
+                vec![
+                    (2023, 9, 29, 2, 0, 0),
+                    (2023, 9, 30, 2, 0, 0),
+                    (2023, 10, 1, 2, 30, 0),
+                    (2023, 10, 2, 2, 0, 0),
+                    (2023, 10, 3, 2, 0, 0),
+                ],
+            ),
+            (
+                "Europe/Berlin",
+                "0 2 * * *",
+                vec![
+                    (2023, 10, 27, 2, 0, 0),
+                    (2023, 10, 28, 2, 0, 0),
+                    (2023, 10, 29, 2, 0, 0), // fold=1 ignored
+                    (2023, 10, 30, 2, 0, 0),
+                    (2023, 10, 31, 2, 0, 0),
+                    (2023, 11, 1, 2, 0, 0),
+                ],
+            ),
+            (
+                "Europe/Berlin",
+                "30 2 * * *",
+                vec![
+                    (2023, 10, 27, 2, 30, 0),
+                    (2023, 10, 28, 2, 30, 0),
+                    (2023, 10, 29, 2, 30, 0), // fold=1 ignored
+                    (2023, 10, 30, 2, 30, 0),
+                    (2023, 10, 31, 2, 30, 0),
+                    (2023, 11, 1, 2, 30, 0),
+                ],
+            ),
+            (
+                "Europe/Berlin",
+                "0 3 * * *",
+                vec![
+                    (2023, 10, 27, 3, 0, 0),
+                    (2023, 10, 28, 3, 0, 0),
+                    (2023, 10, 29, 3, 0, 0),
+                    (2023, 10, 30, 3, 0, 0),
+                    (2023, 10, 31, 3, 0, 0),
+                    (2023, 11, 1, 3, 0, 0),
+                ],
+            ),
+            // Hourly / fall back
+            (
+                "Europe/Berlin",
+                "45 * * * *",
+                vec![
+                    (2023, 10, 29, 0, 45, 0),
+                    (2023, 10, 29, 1, 45, 0),
+                    (2023, 10, 29, 2, 45, 0), // fold=0 ignored
+                    (2023, 10, 29, 2, 45, 0), // fold=1 ignored
+                    (2023, 10, 29, 3, 45, 0),
+                ],
+            ),
+            (
+                "Europe/Berlin",
+                "0 * * * *",
+                vec![
+                    (2023, 10, 29, 0, 0, 0),
+                    (2023, 10, 29, 1, 0, 0),
+                    (2023, 10, 29, 2, 0, 0), // fold=0 ignored
+                    (2023, 10, 29, 2, 0, 0), // fold=1 ignored
+                    (2023, 10, 29, 3, 0, 0),
+                ],
+            ),
+            // Weekly / fall back
+            (
+                "Europe/Berlin",
+                "45 1 * * 0", // Every sunday at 1:45 AM
+                vec![
+                    (2023, 10, 15, 1, 45, 0),
+                    (2023, 10, 22, 1, 45, 0),
+                    (2023, 10, 29, 1, 45, 0),
+                    (2023, 11, 5, 1, 45, 0),
+                    (2023, 11, 12, 1, 45, 0),
+                    (2023, 11, 19, 1, 45, 0),
+                ],
+            ),
+            (
+                "Europe/Berlin",
+                "0 2 * * 0", // Every sunday at 2 AM
+                vec![
+                    (2023, 10, 15, 2, 0, 0),
+                    (2023, 10, 22, 2, 0, 0),
+                    (2023, 10, 29, 2, 0, 0), // fold=1 ignored
+                    (2023, 11, 5, 2, 0, 0),
+                    (2023, 11, 12, 2, 0, 0),
+                    (2023, 11, 19, 2, 0, 0),
+                ],
+            ),
+            (
+                "Europe/Berlin",
+                "30 2 * * 0", // Every sunday at 2:30 AM
+                vec![
+                    (2023, 10, 15, 2, 30, 0),
+                    (2023, 10, 22, 2, 30, 0),
+                    (2023, 10, 29, 2, 30, 0), // fold=1 ignored
+                    (2023, 11, 5, 2, 30, 0),
+                    (2023, 11, 12, 2, 30, 0),
+                    (2023, 11, 19, 2, 30, 0),
+                ],
+            ),
+            (
+                "Europe/Berlin",
+                "0 3 * * 0", // Every sunday at 3:00 AM
+                vec![
+                    (2023, 10, 15, 3, 0, 0),
+                    (2023, 10, 22, 3, 0, 0),
+                    (2023, 10, 29, 3, 0, 0),
+                    (2023, 11, 5, 3, 0, 0),
+                    (2023, 11, 12, 3, 0, 0),
+                    (2023, 11, 19, 3, 0, 0),
+                ],
+            ),
+            // Monthly / fall back (11/5 2AM is turned back to 1AM)
+            (
+                "US/Central",
+                "45 0 5 * *", // 5th of each month at 00:45 (No DST issues)
+                vec![
+                    (2023, 9, 5, 0, 45, 0),
+                    (2023, 10, 5, 0, 45, 0),
+                    (2023, 11, 5, 0, 45, 0),
+                    (2023, 12, 5, 0, 45, 0),
+                    (2024, 1, 5, 0, 45, 0),
+                ],
+            ),
+            (
+                "US/Central",
+                "0 1 5 * *", // 5th of each month at 1AM
+                vec![
+                    (2023, 9, 5, 1, 0, 0),
+                    (2023, 10, 5, 1, 0, 0),
+                    (2023, 11, 5, 1, 0, 0), // fold=1 ignored
+                    (2023, 12, 5, 1, 0, 0),
+                    (2024, 1, 5, 1, 0, 0),
+                ],
+            ),
+            (
+                "US/Central",
+                "30 1 5 * *", // 5th of each month at 130AM
+                vec![
+                    (2023, 9, 5, 1, 30, 0),
+                    (2023, 10, 5, 1, 30, 0),
+                    (2023, 11, 5, 1, 30, 0), // fold=1 ignored
+                    (2023, 12, 5, 1, 30, 0),
+                    (2024, 1, 5, 1, 30, 0),
+                ],
+            ),
+            (
+                "US/Central",
+                "0 2 5 * *", // 5th of each month at 2AM
+                vec![
+                    (2023, 9, 5, 2, 0, 0),
+                    (2023, 10, 5, 2, 0, 0),
+                    (2023, 11, 5, 2, 0, 0), // fold=1 ignored
+                    (2023, 12, 5, 2, 0, 0),
+                    (2024, 1, 5, 2, 0, 0),
+                ],
+            ),
+            // Daily / spring forward
+            (
+                "Europe/Berlin",
+                "0 1 * * *",
+                vec![
+                    (2023, 3, 24, 1, 0, 0),
+                    (2023, 3, 25, 1, 0, 0),
+                    (2023, 3, 26, 1, 0, 0),
+                    (2023, 3, 27, 1, 0, 0),
+                    (2023, 3, 28, 1, 0, 0),
+                    (2023, 3, 29, 1, 0, 0),
+                ],
+            ),
+            (
+                "Europe/Berlin",
+                "0 2 * * *",
+                vec![
+                    (2023, 3, 24, 2, 0, 0),
+                    (2023, 3, 25, 2, 0, 0),
+                    (2023, 3, 26, 3, 0, 0), // 2AM on 3/26 does not exist, move forward
+                    (2023, 3, 27, 2, 0, 0),
+                    (2023, 3, 28, 2, 0, 0),
+                    (2023, 3, 29, 2, 0, 0),
+                ],
+            ),
+            (
+                "Europe/Berlin",
+                "30 2 * * *",
+                vec![
+                    (2023, 3, 24, 2, 30, 0),
+                    (2023, 3, 25, 2, 30, 0),
+                    (2023, 3, 26, 3, 0, 0), // 2AM on 3/26 does not exist, move forward to 3AM
+                    (2023, 3, 27, 2, 30, 0),
+                    (2023, 3, 28, 2, 30, 0),
+                    (2023, 3, 29, 2, 30, 0),
+                ],
+            ),
+            (
+                "Europe/Berlin",
+                "0 3 * * *",
+                vec![
+                    (2023, 3, 24, 3, 0, 0),
+                    (2023, 3, 25, 3, 0, 0),
+                    (2023, 3, 26, 3, 0, 0),
+                    (2023, 3, 27, 3, 0, 0),
+                    (2023, 3, 28, 3, 0, 0),
+                    (2023, 3, 29, 3, 0, 0),
+                ],
+            ),
+            // Weekly / spring forward
+            (
+                "Europe/Berlin",
+                "0 1 * * 0",
+                vec![
+                    (2023, 3, 12, 1, 0, 0),
+                    (2023, 3, 19, 1, 0, 0),
+                    (2023, 3, 26, 1, 0, 0),
+                    (2023, 4, 2, 1, 0, 0),
+                    (2023, 4, 9, 1, 0, 0),
+                    (2023, 4, 16, 1, 0, 0),
+                ],
+            ),
+            (
+                "Europe/Berlin",
+                "0 2 * * 0",
+                vec![
+                    (2023, 3, 12, 2, 0, 0),
+                    (2023, 3, 19, 2, 0, 0),
+                    (2023, 3, 26, 3, 0, 0), // 2AM on 3/26 does not exist, move forward
+                    (2023, 4, 2, 2, 0, 0),
+                    (2023, 4, 9, 2, 0, 0),
+                    (2023, 4, 16, 2, 0, 0),
+                ],
+            ),
+            (
+                "Europe/Berlin",
+                "30 2 * * 0",
+                vec![
+                    (2023, 3, 12, 2, 30, 0),
+                    (2023, 3, 19, 2, 30, 0),
+                    (2023, 3, 26, 3, 0, 0), // 2:30AM on 3/26 does not exist, move forward
+                    (2023, 4, 2, 2, 30, 0),
+                    (2023, 4, 9, 2, 30, 0),
+                    (2023, 4, 16, 2, 30, 0),
+                ],
+            ),
+            (
+                "Europe/Berlin",
+                "0 3 * * 0",
+                vec![
+                    (2023, 3, 12, 3, 0, 0),
+                    (2023, 3, 19, 3, 0, 0),
+                    (2023, 3, 26, 3, 0, 0),
+                    (2023, 4, 2, 3, 0, 0),
+                    (2023, 4, 9, 3, 0, 0),
+                    (2023, 4, 16, 3, 0, 0),
+                ],
+            ),
+            // Monthly / spring forward
+            (
+                "Europe/Berlin",
+                "0 1 26 * *",
+                vec![
+                    (2023, 1, 26, 1, 0, 0),
+                    (2023, 2, 26, 1, 0, 0),
+                    (2023, 3, 26, 1, 0, 0),
+                    (2023, 4, 26, 1, 0, 0),
+                    (2023, 5, 26, 1, 0, 0),
+                ],
+            ),
+            (
+                "Europe/Berlin",
+                "0 2 26 * *",
+                vec![
+                    (2023, 1, 26, 2, 0, 0),
+                    (2023, 2, 26, 2, 0, 0),
+                    (2023, 3, 26, 3, 0, 0), // 2AM on 3/26 does not exist, move forward to 3AM
+                    (2023, 4, 26, 2, 0, 0),
+                    (2023, 5, 26, 2, 0, 0),
+                ],
+            ),
+            (
+                "Europe/Berlin",
+                "30 2 26 * *",
+                vec![
+                    (2023, 1, 26, 2, 30, 0),
+                    (2023, 2, 26, 2, 30, 0),
+                    (2023, 3, 26, 3, 0, 0), // 230AM on 3/26 does not exist, move forward to 3AM
+                    (2023, 4, 26, 2, 30, 0),
+                    (2023, 5, 26, 2, 30, 0),
+                ],
+            ),
+            (
+                "Europe/Berlin",
+                "0 3 26 * *",
+                vec![
+                    (2023, 1, 26, 3, 0, 0),
+                    (2023, 2, 26, 3, 0, 0),
+                    (2023, 3, 26, 3, 0, 0),
+                    (2023, 4, 26, 3, 0, 0),
+                    (2023, 5, 26, 3, 0, 0),
+                ],
+            ),
+            // Hourly / spring forward
+            (
+                "Europe/Berlin",
+                "45 * * * *",
+                vec![
+                    (2023, 3, 26, 0, 45, 0),
+                    (2023, 3, 26, 1, 45, 0),
+                    (2023, 3, 26, 3, 45, 0),
+                    (2023, 3, 26, 4, 45, 0),
+                ],
+            ),
+            (
+                "Europe/Berlin",
+                "0 * * * *",
+                vec![
+                    (2023, 3, 26, 0, 0, 0),
+                    (2023, 3, 26, 1, 0, 0),
+                    (2023, 3, 26, 3, 0, 0),
+                    (2023, 3, 26, 4, 0, 0),
+                ],
+            ),
+            // Minute-level / spring forward
+            (
+                "Europe/Berlin",
+                "*/15 * * * *",
+                vec![
+                    (2023, 3, 26, 0, 0, 0),
+                    (2023, 3, 26, 0, 15, 0),
+                    (2023, 3, 26, 0, 30, 0),
+                    (2023, 3, 26, 0, 45, 0),
+                    (2023, 3, 26, 1, 0, 0),
+                    (2023, 3, 26, 1, 15, 0),
+                    (2023, 3, 26, 1, 30, 0),
+                    (2023, 3, 26, 1, 45, 0),
+                    // 2 AM does not exist
+                    (2023, 3, 26, 3, 0, 0),
+                    (2023, 3, 26, 3, 15, 0),
+                    (2023, 3, 26, 3, 30, 0),
+                    (2023, 3, 26, 3, 45, 0),
+                ],
+            ),
+            // Minute-level / fall back (showing repeated 2 AM hour)
+            (
+                "Europe/Berlin",
+                "*/15 * * * *",
+                vec![
+                    (2023, 10, 29, 0, 0, 0),
+                    (2023, 10, 29, 0, 15, 0),
+                    (2023, 10, 29, 0, 30, 0),
+                    (2023, 10, 29, 0, 45, 0),
+                    (2023, 10, 29, 1, 0, 0),
+                    (2023, 10, 29, 1, 15, 0),
+                    (2023, 10, 29, 1, 30, 0),
+                    (2023, 10, 29, 1, 45, 0),
+                    (2023, 10, 29, 2, 0, 0), // fold=0 ignored
+                    (2023, 10, 29, 2, 15, 0), // fold=0 ignored
+                    (2023, 10, 29, 2, 30, 0), // fold=0 ignored
+                    (2023, 10, 29, 2, 45, 0), // fold=0 ignored
+                    (2023, 10, 29, 2, 0, 0), // fold=1 ignored
+                    (2023, 10, 29, 2, 15, 0), // fold=1 ignored
+                    (2023, 10, 29, 2, 30, 0), // fold=1 ignored
+                    (2023, 10, 29, 2, 45, 0), // fold=1 ignored
+                    (2023, 10, 29, 3, 0, 0),
+                    (2023, 10, 29, 3, 15, 0),
+                    (2023, 10, 29, 3, 30, 0),
+                    (2023, 10, 29, 3, 45, 0),
+                ],
+            ),
+        ];
+
+        for (case_index, (timezone_str, cron_expression, expected_datetimes)) in test_cases.iter().enumerate() {
+            let timezone = timezone_str.parse::<Tz>().expect("Invalid timezone");
+            let schedule = Schedule::from_str(cron_expression).expect("Failed to parse cron expression");
+            
+            // Start from the day before the first expected datetime to ensure we get all expected results
+            let reverse_expected = expected_datetimes.iter().rev().collect::<Vec<_>>();
+            let last_expected = reverse_expected.first().unwrap();
+            let starting_date = timezone
+                .with_ymd_and_hms(last_expected.0, last_expected.1, last_expected.2, last_expected.3, last_expected.4, last_expected.5 + 1)
+                .unwrap();
+            
+            let mut events = schedule.after(&starting_date).rev();
+            
+            for (event_index, expected_datetime) in reverse_expected.iter().enumerate() {
+                let expected_date = NaiveDate::from_ymd_opt(expected_datetime.0, expected_datetime.1, expected_datetime.2)
+                    .unwrap()
+                    .and_hms_opt(expected_datetime.3, expected_datetime.4, expected_datetime.5)
+                    .unwrap();
+                
+                let actual_date = events.next().unwrap_or_else(|| {
+                    panic!("Test case {} ({}): No more events available at index {}", 
+                        case_index, cron_expression, event_index)
+                }).naive_local();
+                
+                assert_eq!(
+                    expected_date, actual_date,
+                    "Test case {} ({}): Date mismatch at index {}", case_index, cron_expression, event_index
+                );
+            }
+        }
+    }
+
+
+    #[test]
     fn test_cron_schedule_comprehensive() {
         // Test cases: (timezone, cron_expression, expected_datetimes)
         // Each expected datetime is (year, month, day, hour, minute, second)

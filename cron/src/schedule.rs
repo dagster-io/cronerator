@@ -1,7 +1,7 @@
 use chrono::offset::{LocalResult, TimeZone};
-use chrono::{DateTime, Datelike, NaiveDateTime, NaiveDate, NaiveTime, Timelike, Utc};
+use chrono::{DateTime, Datelike, NaiveDate, NaiveDateTime, NaiveTime, Timelike, Utc};
 use std::fmt::{Display, Formatter, Result as FmtResult};
-use std::ops::Bound::{Included, Excluded, Unbounded};
+use std::ops::Bound::{Included, Unbounded};
 
 #[cfg(feature = "serde")]
 use core::fmt;
@@ -40,13 +40,7 @@ impl Schedule {
         let dow_and_dom_specific =
             !self.fields.days_of_week.is_all() && !self.fields.days_of_month.is_all();
 
-        let in_fold = match after.naive_local().and_local_timezone(after.timezone()) {
-            LocalResult::Single(_) => false,
-            LocalResult::Ambiguous(fold, _) => after == &fold,
-            LocalResult::None => false,
-        };
-
-        let mut query = NextAfterQuery::from(after);
+        let mut query = NextAfterQuery::from_folded(after);
         for year in self
             .fields
             .years
@@ -58,6 +52,7 @@ impl Schedule {
             if year > after.year() as u32 {
                 query.reset_month();
             }
+
             let month_start = query.month_lower_bound();
             if !self.fields.months.ordinals().contains(&month_start) {
                 query.reset_month();
@@ -93,7 +88,6 @@ impl Schedule {
                     let days_of_week = self.fields.days_of_week.ordinals();
 
                     (day_of_month_start..=day_of_month_end)
-                        .into_iter()
                         .filter(|dom| {
                             let dow = match day_of_week(year, month, *dom) {
                                 Ok(dow) => dow,
@@ -115,11 +109,16 @@ impl Schedule {
                 }
 
                 for day_of_month in day_of_month_candidates {
+                    let date_candidate = match NaiveDate::from_ymd_opt(year as i32, month, day_of_month) {
+                        Some(d) => d,
+                        None => continue,
+                    };
+
                     let hour_start = query.hour_lower_bound();
                     if !self.fields.hours.ordinals().contains(&hour_start) {
                         query.reset_hour();
                     }
-                    let hour_range = (Included(hour_start), Included(Hours::inclusive_max()));
+                    let hour_range = hour_start..=Hours::inclusive_max();
 
                     for hour in self.fields.hours.ordinals().range(hour_range).cloned() {
                         let minute_start = query.minute_lower_bound();
@@ -129,105 +128,77 @@ impl Schedule {
                         let minute_range =
                             (Included(minute_start), Included(Minutes::inclusive_max()));
 
-                        let minute_candidates = if in_fold {
-                            let next_fold_range = (
-                                Included(0),
-                                // run the start again to run it with seconds reset
-                                Included(minute_start),
-                            );
-                            
-                            let first_iter = self.fields
-                                .minutes
-                                .ordinals()
-                                .range(minute_range)
-                                .cloned();
-                            
-                            let second_iter = self.fields
-                                .minutes
-                                .ordinals()
-                                .range(next_fold_range)
-                                .cloned();
-                            
-                            Box::new(first_iter.chain(second_iter)) as Box<dyn Iterator<Item = u32>>
-                        } else {
-                            Box::new(
-                                self.fields
-                                    .minutes
-                                    .ordinals()
-                                    .range(minute_range)
-                                    .cloned()
-                            ) as Box<dyn Iterator<Item = u32>>
-                        };
-
-                        for minute in minute_candidates {
-                            let second_start = query.second_lower_bound();
-                            if !self.fields.seconds.ordinals().contains(&second_start) {
-                                query.reset_second();
-                            }
-                            let second_range =
-                                (Included(second_start), Included(Seconds::inclusive_max()));
+                        for minute in 
+                            self.fields.minutes.ordinals().range(minute_range).cloned()
+                        {
+                            let second_range = query.second_lower_bound()..=Seconds::inclusive_max();
 
                             for second in
                                 self.fields.seconds.ordinals().range(second_range).cloned()
                             {
-                                let timezone = after.timezone();
-                                let cloned_timezone = timezone.clone();
-                                let naive_date = match NaiveDate::from_ymd_opt(year as i32, month, day_of_month) {
-                                    Some(d) => d,
-                                    None => continue,
-                                };
                                 let naive_time = match NaiveTime::from_hms_opt(hour, minute, second) {
                                     Some(t) => t,
                                     None => continue,
                                 };
-                                let naive_dt = NaiveDateTime::new(naive_date, naive_time);
-                                return match naive_dt.and_local_timezone(timezone) {
-                                    LocalResult::None => {
-                                        // For hourly schedules, just find the next valid interval
-                                        if self.fields.hours.is_all() {
-                                            continue;
-                                        } else {
-                                        // For other schedules, skip to the next valid time
-                                            let next_valid = find_next_valid_datetime(&cloned_timezone, naive_dt);
-                                            if next_valid > *after {
-                                                return Some(next_valid);
-                                            } else {
-                                                continue;
-                                            }
-                                        }
-                                    },
-                                    LocalResult::Single(dt) => {
-                                        // Because of the tricky logic around double seaching minutes in a fold,
-                                        // we need to be sure we don't go backwards in time.
-                                        if dt > *after {
-                                            Some(dt)
+                                let naive_dt = NaiveDateTime::new(date_candidate, naive_time);
+                                match naive_dt.and_local_timezone(after.timezone()) {
+                                    LocalResult::Single(dt) if dt > *after => return Some(dt),
+                                    // hourly schedules use both occurrences of a repeated hour
+                                    LocalResult::Ambiguous(fold_0, _) if self.fields.hours.is_all() && fold_0 > *after => return Some(fold_0),
+                                    // hourly schedules just skip ahead to the next valid time
+                                    LocalResult::None => if !self.fields.hours.is_all() {
+                                        let next_valid = find_next_valid_datetime(&after.timezone(), naive_dt);
+                                        if next_valid > *after {
+                                            return Some(next_valid);
                                         } else {
                                             continue;
                                         }
-                                    }
-                                    LocalResult::Ambiguous(fold_0, fold_1 ) => {
-                                        if self.fields.hours.is_all() {
-                                            // In an hourly schedule, just return the next occurrence
-                                            if fold_0 > *after {
-                                                return Some(fold_0);
-                                            } else if fold_1 > *after {
-                                                return Some(fold_1);
-                                            } else {
-                                                continue;
-                                            }
-                                        } else {
-                                            // For other schedules, only return the second occurrence
-                                            if fold_0 > *after {
-                                                return Some(fold_1);
-                                            } else {
-                                                continue;
-                                            }
-                                        }
                                     },
+                                    _ => continue,
                                 };
-                            }
+
+                            } // End of seconds range
                             query.reset_minute();
                         } // End of minutes range
+
+                        // Check the repeated hour for any matching times.
+                        let naive_dt = NaiveDateTime::new(date_candidate, NaiveTime::from_hms_opt(hour, minute_start, 0).unwrap());
+                        let in_fold = match naive_dt.and_local_timezone(after.timezone()) {
+                            LocalResult::Ambiguous(_, _) => true,
+                            _ => false,
+                        };
+                        if in_fold {
+                            let next_fold_range = (
+                                Included(0),
+                                Included(Minutes::inclusive_max()),
+                            );
+
+                            for minute in 
+                                self.fields.minutes.ordinals().range(next_fold_range).cloned() 
+                            {
+                                let second_start = query.second_lower_bound();
+                                let second_range =
+                                    (Included(second_start), Included(Seconds::inclusive_max()));
+
+                                for second in
+                                    self.fields.seconds.ordinals().range(second_range).cloned()
+                                {
+                                    let naive_time = match NaiveTime::from_hms_opt(hour, minute, second) {
+                                        Some(t) => t,
+                                        None => continue,
+                                    };
+                                    let naive_dt = NaiveDateTime::new(date_candidate, naive_time);
+                                    match naive_dt.and_local_timezone(after.timezone()) {
+                                        LocalResult::Single(dt) if dt > *after => return Some(dt),
+                                        LocalResult::Ambiguous(_, fold_1) if fold_1 > *after => return Some(fold_1),
+                                        _ => continue,
+                                    };
+
+                                } // End of seconds range
+                                query.reset_minute();
+                            } // End of minutes range
+                        }
+
                         query.reset_hour();
                     } // End of hours range
                     query.reset_day_of_month();
@@ -248,13 +219,7 @@ impl Schedule {
         let dow_and_dom_specific =
             !self.fields.days_of_week.is_all() && !self.fields.days_of_month.is_all();
 
-        let in_fold = match before.naive_local().and_local_timezone(before.timezone()) {
-            LocalResult::Single(_) => false,
-            LocalResult::Ambiguous(_, fold) => before == &fold,
-            LocalResult::None => false,
-        };
-
-        let mut query = PrevFromQuery::from(before);
+        let mut query = PrevFromQuery::from_folded(before);
         for year in self
             .fields
             .years
@@ -331,11 +296,15 @@ impl Schedule {
                 }
 
                 for day_of_month in day_of_month_candidates {
+                    let date_candidate = match NaiveDate::from_ymd_opt(year as i32, month, day_of_month) {
+                        Some(d) => d,
+                        None => continue,
+                    };
                     let hour_start = query.hour_upper_bound();
                     if !self.fields.hours.ordinals().contains(&hour_start) {
                         query.reset_hour();
                     }
-                    let hour_range = (Included(Hours::inclusive_min()), Included(hour_start));
+                    let hour_range = Hours::inclusive_min()..=hour_start;
 
                     for hour in self
                         .fields
@@ -349,113 +318,71 @@ impl Schedule {
                         if !self.fields.minutes.ordinals().contains(&minute_start) {
                             query.reset_minute();
                         }
-                        let minute_range =
-                            (Included(Minutes::inclusive_min()), Included(minute_start));
+                        let minute_range = Minutes::inclusive_min()..=minute_start;
 
-                        let minute_candidates = if in_fold {
-                            let next_fold_range = (
-                                Excluded(minute_start),
-                                Included(60),
-                            );
-                            
-                            let first_iter = self.fields
-                                .minutes
-                                .ordinals()
-                                .range(minute_range)
-                                .rev()
-                                .cloned();
-                            
-                            let second_iter = self.fields
-                                .minutes
-                                .ordinals()
-                                .range(next_fold_range)
-                                .rev()
-                                .cloned();
-                            
-                            Box::new(first_iter.chain(second_iter)) as Box<dyn Iterator<Item = u32>>
-                        } else {
-                            Box::new(
-                                self.fields
-                                    .minutes
-                                    .ordinals()
-                                    .range(minute_range)
-                                    .rev()
-                                    .cloned()
-                            ) as Box<dyn Iterator<Item = u32>>
-                        };
+                        for minute in 
+                            self.fields.minutes.ordinals().range(minute_range).rev().cloned() 
+                        {
+                            let second_range = Seconds::inclusive_min()..=query.second_upper_bound();
 
-                        for minute in minute_candidates {
-                            let second_start = query.second_upper_bound();
-                            if !self.fields.seconds.ordinals().contains(&second_start) {
-                                query.reset_second();
-                            }
-                            let second_range =
-                                (Included(Seconds::inclusive_min()), Included(second_start));
-
-                            for second in self
-                                .fields
-                                .seconds
-                                .ordinals()
-                                .range(second_range)
-                                .rev()
-                                .cloned()
+                            for second in 
+                                self.fields.seconds.ordinals().range(second_range).rev().cloned()
                             {
-                                let timezone = before.timezone();
-                                let cloned_timezone = timezone.clone();
-                                let naive_date = match NaiveDate::from_ymd_opt(year as i32, month, day_of_month) {
-                                    Some(d) => d,
-                                    None => continue,
-                                };
                                 let naive_time = match NaiveTime::from_hms_opt(hour, minute, second) {
                                     Some(t) => t,
                                     None => continue,
                                 };
-                                let naive_dt = NaiveDateTime::new(naive_date, naive_time);
-                                return match naive_dt.and_local_timezone(timezone) {
-                                    LocalResult::None => {
-                                        // For hourly schedules, just find the next valid interval
-                                        if self.fields.hours.is_all() {
-                                            continue;
-                                        } else {
-                                        // For other schedules, skip to the next valid time
-                                            let next_valid = find_next_valid_datetime(&cloned_timezone, naive_dt);
-                                            if next_valid < *before {
-                                                return Some(next_valid);
-                                            } else {
-                                                continue;
-                                            }
-                                        }
-                                    },
-                                    LocalResult::Single(dt) => {
-                                        if dt < *before {
-                                            Some(dt)
+                                let naive_dt = NaiveDateTime::new(date_candidate, naive_time);
+                                match naive_dt.and_local_timezone(before.timezone()) {
+                                    LocalResult::None if !self.fields.hours.is_all() => {
+                                        let next_valid = find_next_valid_datetime(&before.timezone(), naive_dt);
+                                        if next_valid < *before {
+                                            return Some(next_valid);
                                         } else {
                                             continue;
                                         }
                                     },
-                                    LocalResult::Ambiguous(fold_0, fold_1 ) => {
-                                        if self.fields.hours.is_all() {
-                                            // In an hourly schedule, just return the next occurrence
-                                            if fold_1 < *before {
-                                                return Some(fold_1);
-                                            } else if fold_0 < *before {
-                                                return Some(fold_0);
-                                            } else {
-                                                continue;
-                                            }
-                                        } else {
-                                            // For other schedules, only return the second occurrence
-                                            if fold_0 < *before {
-                                                return Some(fold_1);
-                                            } else {
-                                                continue;
-                                            }
-                                        }
-                                    },
+                                    LocalResult::Single(dt) if dt < *before => return Some(dt),
+                                    LocalResult::Ambiguous(_, fold_1 ) if fold_1 < *before => return Some(fold_1),
+                                    _ => {}
                                 };
                             }
                             query.reset_minute();
                         } // End of minutes range
+
+                        // We need to check the repeated hour for any matching times.
+                        let naive_dt = NaiveDateTime::new(date_candidate, NaiveTime::from_hms_opt(hour, minute_start, 0).unwrap());
+                        let in_fold = match naive_dt.and_local_timezone(before.timezone()) {
+                            LocalResult::Ambiguous(_, _) => true,
+                            _ => false,
+                        };
+
+                        if in_fold {
+                            let next_fold_range = Minutes::inclusive_min()..=Minutes::inclusive_max();
+
+                            for minute in 
+                                self.fields.minutes.ordinals().range(next_fold_range).rev().cloned() 
+                            {
+                                let second_range = Seconds::inclusive_min()..=query.second_upper_bound();
+
+                                for second in
+                                    self.fields.seconds.ordinals().range(second_range).rev().cloned()
+                                {
+                                    let naive_time = match NaiveTime::from_hms_opt(hour, minute, second) {
+                                        Some(t) => t,
+                                        None => continue,
+                                    };
+                                    let naive_dt = NaiveDateTime::new(date_candidate, naive_time);
+                                    match naive_dt.and_local_timezone(before.timezone()) {
+                                        LocalResult::Single(dt) if dt < *before => return Some(dt),
+                                        LocalResult::Ambiguous(fold_0, _ ) if self.fields.hours.is_all() && fold_0 < *before => return Some(fold_0),
+                                        _ => {}
+                                    };
+                                } // End of seconds range
+                                query.reset_minute();
+                            } // End of minutes range
+                        }
+
                         query.reset_hour();
                     } // End of hours range
                     query.reset_day_of_month();
